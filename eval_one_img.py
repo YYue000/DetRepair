@@ -16,12 +16,12 @@ ev_res = np.zeros([6,len(imgids)])
 for i,imgid in enumerate(imgids):
     pred = [_ for _ in predictions if _['image_id']==imgid]
     cocoDt = cocoGt.loadRes(pred)
-    cocoEval = COCOeval(cocoGt, cocoDt)
+    cocoEval = COCOeval(cocoGt, cocoDt, iouType=metric)
     cocoEval.params.imgIds = [imgid]
     cocoEval.evaluate()
     cocoEval.accumulate()
     cocoEval.summarize()
-    ap = cocoEval.stats[:6]
+    ap = cocoEval.stats
     print(imgid, ap)
     ev_res[:,i] = ap
 
