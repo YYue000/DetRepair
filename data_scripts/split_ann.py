@@ -14,6 +14,7 @@ SN=1000
 
 annotations = json.load(open('/home/yueyuxin/data/coco/annotations/instances_val2017.json'))
 fail_ids = pickle.load(open('/home/yueyuxin/data/coco/c_pickles/retina_fog_5/retina_fog_5_failure_id.pickle','rb')).astype(np.int64)
+dump_anns(fail_ids, '/home/yueyuxin/data/coco/c_annotations/retina_fog_5_failure.json')
 
 
 np.random.shuffle(fail_ids)

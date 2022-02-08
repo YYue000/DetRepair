@@ -6,7 +6,7 @@ import copy
 corruption_name = 'fog'
 severity = 5
 root_corrupted='corrupted/fog-5/train/'
-root_clean = 'val2017'
+root_clean = 'val2017/'
 corrupted = json.load(open('/home/yueyuxin/data/coco/c_annotations/retina_fog_5_train.json'))
 
 clean_all = json.load(open('/home/yueyuxin/data/coco/annotations/instances_val2017.json'))
@@ -36,11 +36,14 @@ for img in corrupted['images']:
 
     imgid = img['id']
     img['file_name'] = root_corrupted+img['file_name']
-    img['id'] = int(imgid+1e6)
+    img['id'] = -imgid
+    #img['id'] = int(imgid+1e6)
     merge['images'].append(img)
 
     for ann in corrupted_imgid2anns[imgid]:
-        ann['image_id'] =  int(imgid+1e6)
+        ann['image_id'] =  -imgid
+        #ann['image_id'] =  int(imgid+1e6)
+        ann['id'] = -ann['id']
     merge['annotations'] += corrupted_imgid2anns[imgid]
 
 print(len(merge['images']), len(corrupted['images']))
