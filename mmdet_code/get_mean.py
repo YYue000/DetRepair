@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 def get_ap(fp):
     l = []
@@ -17,4 +18,5 @@ fog5 = get_ap('test_fog5.log')
 
 l = [(_+__)/2 for _,__ in zip(clean, fog5)]
 print(l)
-print(max(l))
+_ = np.argmax(l)
+print("epoch",_+1,"mean",max(l), "failure",fog5[_], "clean",clean[_])
