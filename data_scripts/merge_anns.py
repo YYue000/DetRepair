@@ -1,8 +1,8 @@
 import json
 
-f1 = '/yueyuxin/data/coco/sampled_annotations/instances_train2017_sample1000.json'
+f1 = '/yueyuxin/data/coco/sampled_annotations/instances_train2017_sample10000.json'
 f2 = '/yueyuxin/data/coco/c_annotations/retina_fog_5_1k_clean_ref_1k.json'
-anns_path='/yueyuxin/data/coco/c_annotations/retina_fog_5_1k_clean_ref_1k_train_1k.json'
+anns_path='/yueyuxin/data/coco/c_annotations/retina_fog_5_1k_clean_ref_1k_train_10k.json'
 
 def get_data(f, img_root=None):
     data = json.load(open(f))
