@@ -24,6 +24,7 @@ def parse_clean_ap(path):
 
 def get_model_results(model_workspace_dir):
     results = {}
+    assert os.path.exists(model_workspace_dir)
     for root, d, files in os.walk(model_workspace_dir):
         for f in files:
             p = os.path.join(root, f)
@@ -54,22 +55,4 @@ def get_model_results(model_workspace_dir):
                     results[m]['clean'] = ap
     return results 
 
-def _ap_str(ap, k):
-    if ap is None:
-        return '&'
-    else:
-        return f'&{ap[k]*100:.1f}'
-
-
-if __name__=='__main__':
-    results = get_model_results('../retinanet')
-
-    from collectFailure import output_table
-    outs = ''
-    for k in AP_KEYS:
-        _ap_str = lambda ap: f'&{ap[k]*100:.1f}' if ap is not None else '&'
-        outs += output_table(results, str(k), _ap_str, True)
-
-    with open('table-retina-2.txt','w') as fw:
-        fw.write(outs)
 
