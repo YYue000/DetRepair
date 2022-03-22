@@ -14,7 +14,7 @@ METHOD = 'finetune_failure' # 'finetune_clean+failure'
 
 CFG_ROOT = '/home/yueyuxin/repair_workspace/mmdetection'
 DATA_ROOT = '/repair_workspace/data/coco'
-WORKSPACEROOT = '/home/yueyuxin/repair_workspace/mmdetection/repair_benchmarks/finetune_failure' 
+WORKSPACEROOT = '/home/yueyuxin/repair_workspace/mmdetection/repair_benchmarks/'+METHOD
 
 SET2RUN = lambda x:x.replace('/home/yueyuxin','')
  
