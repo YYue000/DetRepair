@@ -10,11 +10,15 @@ import numpy as np
 from imagecorruptions import get_corruption_names
 from mmcv import Config
 
-CFG_ROOT = '/repair_workspace/mmdetection'
+METHOD = 'finetune_failure' # 'finetune_clean+failure'
+
+CFG_ROOT = '/home/yueyuxin/repair_workspace/mmdetection'
 DATA_ROOT = '/repair_workspace/data/coco'
-WORKSPACEROOT = '/repair_workspace/mmdetection/repair_benchmarks/finetune_clean+failure' 
+WORKSPACEROOT = '/home/yueyuxin/repair_workspace/mmdetection/repair_benchmarks/finetune_failure' 
+
+SET2RUN = lambda x:x.replace('/home/yueyuxin','')
  
-TEST_BASE_ROOT='/repair_workspace/mmdetection/corruption_benchmarks'
+TEST_BASE_ROOT='/home/yueyuxin/repair_workspace/mmdetection/corruption_benchmarks'
 TEST_IMG_AP_C_FILE_NAME = 'output.pkl.ap.pkl'
 TEST_IMG_AP_CLEAN_FILE_NAME = 'output.ap.pkl'
 FAILURE_ANN_NAME = 'failure_annotation.json'
@@ -25,8 +29,8 @@ FL_TEST_NAME = FAILURE_ANN_NAME.replace('.json','_fltest.json')
 
 def get_coco_annotations(path):
     return json.load(open(path))
-coco_train_annotations = get_coco_annotations('/repair_workspace/data/coco/annotations/instances_train2017.json')
-coco_val_annotations = get_coco_annotations('/repair_workspace/data/coco/annotations/instances_val2017.json')
+coco_train_annotations = get_coco_annotations('/home/yueyuxin/repair_workspace/data/coco/annotations/instances_train2017.json')
+coco_val_annotations = get_coco_annotations('/home/yueyuxin/repair_workspace/data/coco/annotations/instances_val2017.json')
 
 MAXEPOCH = 8
 ################################################
@@ -118,7 +122,8 @@ def setup_failure_set(failure_imgid, wksp, sample_clean=False):
 def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
     cfg_path = os.path.join(CFG_ROOT, model["Config"])  
     cfg = Config.fromfile(cfg_path)
-    cfg['load_from'] = weight_path
+    cfg['load_from'] = SET2RUN(weight_path)
+    twksp = SET2RUN(twksp)
 
     aug = dict(type='Corrupt',corruption=corruption, severity=severity)
     train_data = cfg['data']['train']
@@ -133,7 +138,13 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
     train_data['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
     corrupted_train_data = copy.deepcopy(train_data)
     corrupted_train_data['pipeline'].insert(1, aug)
-    new_train_data = dict(type='ConcatDataset', datasets=[train_data, corrupted_train_data])
+
+    if METHOD == 'finetune_clean+failure':
+        new_train_data = dict(type='ConcatDataset', datasets=[train_data, corrupted_train_data])
+    elif METHOD == 'finetune_failure':
+        new_train_data = corrupted_train_data
+    else:
+        raise NotImplementedError
 
     assert cfg['data']['val']['type'] == 'CocoDataset'
     assert cfg['data']['test']['type'] == 'CocoDataset'
@@ -157,8 +168,7 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
     cfg['lr_config'].pop('warmup_iters', None)
     cfg['lr_config'].pop('warmup_ratio', None)
 
-    # for debug
-    # cfg.dump(new_cfg_file)
+    cfg.dump(new_cfg_file)
 
 def setup(models, prefix):
     runsh_str = '\n'
@@ -178,6 +188,7 @@ def setup(models, prefix):
         for corruption in get_corruption_names():
             for severity in range(1, 6):
                 k = f'{corruption}-{severity}'
+                print(k)
 
                 rd = os.path.join(base_dir, k)
                 os.makedirs(rd, exist_ok=True)
@@ -198,11 +209,15 @@ def setup(models, prefix):
                     for sh in ['train.sh', 'test_all.sh', 'get_mean.py']:
                         shutil.copy(sh, rd)
 
-                runsh_str += f'cd {rd}\n'
+                runsh_str += f'cd {SET2RUN(rd)}\n'
 
-                runsh_str+=f'bash train.sh {new_cfg_file} $1\n'
-                runsh_str+=f'sh test_all.sh {new_cfg_file} {MAXEPOCH}\n'
+                runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)}\n'
+                runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH}\n'
                 runsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
+
+        with open(os.path.join(WORKSPACEROOT, prefix, 'run_tmp.sh'), 'w') as fw:
+            fw.write(runsh_str)
+
 
     with open(os.path.join(WORKSPACEROOT, prefix, 'run.sh'), 'w') as fw:
         fw.write(runsh_str)
