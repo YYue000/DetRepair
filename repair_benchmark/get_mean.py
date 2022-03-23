@@ -29,7 +29,7 @@ if __name__ == '__main__':
     if test_in == 0:
         fog5 = get_ap('test.log')
     elif test_in == 1:
-        fog5 = [get_ap(f'test_{_}.log')[0] for _ in range(MAXEPOCH)]
+        fog5 = [get_ap(f'test_{_+1}.log')[0] for _ in range(MAXEPOCH)]
     else:
         raise NotImplementedError
 
