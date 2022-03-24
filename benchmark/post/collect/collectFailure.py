@@ -2,15 +2,28 @@ import pickle
 import os
 import numpy as np
 
+import logging
+logger = logging.getLogger('global')
+
+
 def get_clean(result_file):
     return pickle.load(open(result_file, 'rb'))
 
 def get_failure(result_file, clean, B=1, key_idx=1):
     results = pickle.load(open(result_file, 'rb'))
     failure_flag = results[key_idx]<clean[key_idx]
-    failure_imgid = results[0][failure_flag]
+    valid_flag = results[0]>0
+    failure_imgid = results[0][failure_flag&valid_flag]
     failure_pctg = np.sum(failure_flag)/results.shape[1]
     return failure_pctg
+
+def get_failure_imgid(result_file, clean, B=1, key_idx=1):
+    results = pickle.load(open(result_file, 'rb'))
+    failure_flag = results[key_idx]<clean[key_idx]
+    valid_flag = results[0]>0
+    failure_imgid = results[0][failure_flag&valid_flag]
+    return failure_imgid
+
 
 
 def parse_failure(get_failure_func, root, name='output.pkl.ap.pkl', clean_name='output.ap.pkl'):
@@ -35,7 +48,7 @@ def get_model_results(model_workspace_dir, verbose=True, get_failure_func=get_fa
             p = os.path.join(root, f)
             if f == 'output_results.pkl':
                 if verbose:
-                    print(root)
+                    logger.info(f'{root}')
                 c, s, fl = parse_failure(get_failure_func, root)
                 m = root.split('/')[-2]
                 if m not in results:
