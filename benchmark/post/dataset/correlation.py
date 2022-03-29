@@ -59,33 +59,15 @@ if __name__ == '__main__':
 
     failure_results = get_failure_results(path, get_failure_func=partial(get_failure_stats, anns=anns))
 
-    #Object = 'area2'
-    #Object = 'area'
-    Object = 'crowd'
-    # Object = ''
-    #Object = 'small'
+    Object = 'area'
 
     if Object == 'area':
         L = lambda x: areaRngLbl 
         F = lambda fl_c_info,s,k,lbl: fl_c_info[s]['area_num'][lbl]/fl_c_info[s]['instance_num']
-    elif Object == 'area2':
-        L = lambda x: areaRngLbl 
-        F = lambda fl_c_info,s,k,lbl: fl_c_info[s]['area_num'][lbl]/fl_c_info[s]['area_num']['all']
-    elif Object == 'crowd':
-        L = lambda x: ['crowdratio']
-        F = lambda fl_c_info,s,k,lbl: fl_c_info[s]['crowd_num']/fl_c_info[s]['instance_num']
-    elif Object == '':
-        L = lambda x: [x]
-        F = lambda fl_c_info,s,k,lbl: fl_c_info[s][k]
-    elif Object == 'small':
-        L = lambda x: ['small']
-        F = lambda fl_c_info,s,k,lbl: fl_c_info[s]['area_num'][lbl]/fl_c_info[s]['instance_num']
-
     else:
         raise NotImplementedError
 
     
-
     for k in AP_KEYS:
         for lbl in L(k):
         #for lbl in areaRngLbl:
