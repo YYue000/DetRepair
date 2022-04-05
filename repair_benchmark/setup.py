@@ -10,15 +10,16 @@ import numpy as np
 from imagecorruptions import get_corruption_names
 from mmcv import Config
 
-METHOD = 'finetune_failure' # 'finetune_clean+failure'
+#METHOD ='finetune_failure'  
+METHOD ='finetune_clean+failure' # 'finetune_failure'  
 
-CFG_ROOT = '/home/yueyuxin/repair_workspace/mmdetection'
-DATA_ROOT = '/repair_workspace/data/coco'
-WORKSPACEROOT = '/home/yueyuxin/repair_workspace/mmdetection/repair_benchmarks/'+METHOD
+CFG_ROOT = '/home/yueyuxin/mmdetection'
+DATA_ROOT = '/yueyuxin/data/coco'
+WORKSPACEROOT = '/yueyuxin/mmdetection/repair_benchmarks/'+METHOD
 
-SET2RUN = lambda x:x.replace('/home/yueyuxin','')
+SET2RUN = lambda x: x#lambda x:x.replace('/home/yueyuxin','')
  
-TEST_BASE_ROOT='/home/yueyuxin/repair_workspace/mmdetection/corruption_benchmarks'
+TEST_BASE_ROOT='/yueyuxin/mmdetection/corruption_benchmarks'
 TEST_IMG_AP_C_FILE_NAME = 'output.pkl.ap.pkl'
 TEST_IMG_AP_CLEAN_FILE_NAME = 'output.ap.pkl'
 FAILURE_ANN_NAME = 'failure_annotation.json'
@@ -29,8 +30,8 @@ FL_TEST_NAME = FAILURE_ANN_NAME.replace('.json','_fltest.json')
 
 def get_coco_annotations(path):
     return json.load(open(path))
-coco_train_annotations = get_coco_annotations('/home/yueyuxin/repair_workspace/data/coco/annotations/instances_train2017.json')
-coco_val_annotations = get_coco_annotations('/home/yueyuxin/repair_workspace/data/coco/annotations/instances_val2017.json')
+coco_train_annotations = get_coco_annotations('/yueyuxin/data/coco/annotations/instances_train2017.json')
+coco_val_annotations = get_coco_annotations('/yueyuxin/data/coco/annotations/instances_val2017.json')
 
 MAXEPOCH = 8
 ################################################
@@ -155,7 +156,7 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
     cfg['data']['test']['pipeline'].insert(1, aug)
     cfg['data']['train'] = new_train_data
     # if batch=4
-    cfg['data']['samples_per_gpu'] = 4
+    cfg['data']['samples_per_gpu'] = 8
     
     cfg['runner']['max_epochs'] = MAXEPOCH
     if cfg['lr_config']['policy'] == 'step':
@@ -173,6 +174,9 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
 def setup(models, prefix):
     runsh_str = '\n'
     for model in models:
+        # tmp
+        if model["Name"] == f'{prefix}_r50_fpn_1x_coco' and model["Name"] == f'{prefix}_r101_fpn_1x_coco': continue
+        if 'caffe' in model["Name"]: continue
         print('processing',model['Name'])
 
         base_dir = os.path.join(WORKSPACEROOT, prefix, model['Name'])
@@ -186,12 +190,24 @@ def setup(models, prefix):
             continue
 
         for corruption in get_corruption_names():
-            for severity in range(1, 6):
+            if corruption == 'glass_blur': continue
+            for severity in [3]:
+            #for severity in range(1, 6):
                 k = f'{corruption}-{severity}'
-                print(k)
 
                 rd = os.path.join(base_dir, k)
+                
+                # trained exp
+                ckpt_path = os.path.join(rd, 'work_dirs', f'epoch_{MAXEPOCH}.pth')
+                if os.path.exists(ckpt_path): continue
+
+                # finished exp
+                sum_log_path = os.path.join(rd, 'sum.log')
+                if os.path.exists(sum_log_path): continue
+
+                print(k)
                 os.makedirs(rd, exist_ok=True)
+
                 
                 # parse failure
                 td = os.path.join(test_base_dir, k)
@@ -211,20 +227,21 @@ def setup(models, prefix):
 
                 runsh_str += f'cd {SET2RUN(rd)}\n'
 
-                runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)}\n'
-                runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH}\n'
+                runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)} $1\n'
+                runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH} $1\n'
                 runsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
 
         with open(os.path.join(WORKSPACEROOT, prefix, 'run_tmp.sh'), 'w') as fw:
             fw.write(runsh_str)
 
 
-    with open(os.path.join(WORKSPACEROOT, prefix, 'run.sh'), 'w') as fw:
+    with open(os.path.join(WORKSPACEROOT, prefix, 'run_all3.sh'), 'w') as fw:
         fw.write(runsh_str)
 
 
 if __name__ == '__main__':
-    for prefix in ['retinanet']:
+    #for prefix in ['faster_rcnn']:
+    for prefix in ['retinanet', 'faster_rcnn']:
         models = get_model_files(os.path.join(CFG_ROOT, f'configs/{prefix}/metafile.yml'))
         setup(models, prefix=prefix)
 
