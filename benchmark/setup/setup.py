@@ -6,6 +6,7 @@ from imagecorruptions import get_corruption_names
 TEST_SH = {'clean': 'test_scripts/test.sh'}
 
 for corruption in get_corruption_names():
+    if corruption == 'glass_blur': continue
     for serverity in [3]:
     #for serverity in range(1, 6):
         TEST_SH[f'{corruption}-{serverity}'] = f'test_scripts/test_{corruption}-{serverity}.sh'
@@ -58,6 +59,8 @@ def setup(models, root, cfg_dir, prefix):
             os.system(f'wget -P {base_dir} {model["Weights"]}')
         for k, SH in TEST_SH.items():
             d = os.path.join(base_dir, k)
+            if os.path.exists(os.path.join(d,'output_results.pkl')):
+                continue
             if not os.path.exists(d):
                 os.makedirs(d)
                 shutil.copy(SH, d)
