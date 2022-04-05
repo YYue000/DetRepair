@@ -90,7 +90,7 @@ def split_train_test(failure_imgid, trainsize=1000):
 
 def sample_train(raw_annotations, samplesize=1000):
     annotations = {}
-    sample = np.random.choice(np.arange(len(annotations['images'])), samplesize)
+    sample = np.random.choice(np.arange(len(annotations['images'])), samplesize, replace=False)
     annotations['images'] = [_ for _ in raw_annotations['images'] if _['id'] in sample]
     annotations['annotations'] = [_ for _ in raw_annotations['annotations'] if _['image_id'] in sample]
     return annotations

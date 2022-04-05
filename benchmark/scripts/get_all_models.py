@@ -5,7 +5,7 @@ def get_models(metafile):
     f = yaml.safe_load(open(metafile))
     det_models = []
     for m in f['Models']:
-        if sum([_ in m["Name"] for _ in ['retinanet', 'faster_rcnn', 'cascade_rcnn', 'mask_rcnn']])>0  and 'caffe' in m['Name']: continue
+        if sum([_ in m["Name"] for _ in ['retinanet', 'faster_rcnn', 'cascade_rcnn', 'mask_rcnn']])>0  and sum([_ in m["Name"] for _ in ['caffe', 'poly']]): continue
         flag = False
         for r in m['Results']:
             if r['Task'] == 'Object Detection':

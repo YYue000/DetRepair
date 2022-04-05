@@ -6,7 +6,8 @@ from imagecorruptions import get_corruption_names
 TEST_SH = {'clean': 'test_scripts/test.sh'}
 
 for corruption in get_corruption_names():
-    for serverity in range(1, 6):
+    for serverity in [3]:
+    #for serverity in range(1, 6):
         TEST_SH[f'{corruption}-{serverity}'] = f'test_scripts/test_{corruption}-{serverity}.sh'
 
 def _get_cfg(seg):
@@ -43,25 +44,34 @@ def get_model_files_fake(readme_file):
 def setup(models, root, cfg_dir, prefix):
     runsh_str = '\n'
     for model in models:
+        if 'caffe' in model['Name'] or 'poly' in model['Name']: continue
         base_dir = os.path.join(root, prefix, model['Name'])
-        os.makedirs(base_dir)
-        os.system(f'wget -P {base_dir} {model["Weights"]}')
-        w = model["Weights"].split('/')[-1]
+        print('processing',model['Name'])
+        try:
+            w = model["Weights"].split('/')[-1]
+        except:
+            print('No weights available', model['Name'])
+            continue
+
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)   
+            os.system(f'wget -P {base_dir} {model["Weights"]}')
         for k, SH in TEST_SH.items():
             d = os.path.join(base_dir, k)
-            os.makedirs(d)
-            shutil.copy(SH, d)
+            if not os.path.exists(d):
+                os.makedirs(d)
+                shutil.copy(SH, d)
 
             runsh_str += f'cd {d}\n'
             runsh_str+=f'sh {SH.split("/")[-1]} {os.path.join(cfg_dir, model["Config"])} ../{w} $1\n'
 
-    with open(os.path.join(root, 'run.sh'), 'w') as fw:
+    with open(os.path.join(root, prefix,'run.sh'), 'w') as fw:
         fw.write(runsh_str)
 
 
 if __name__ == '__main__':
     cfg_dir = '/home/yueyuxin/mmdetection'
-    prefix = 'retinanet'
+    prefix = 'mask_rcnn'
     models = get_model_files(os.path.join(cfg_dir, f'configs/{prefix}/metafile.yml'))
     setup(models, '/yueyuxin/mmdetection/corruption_benchmarks', cfg_dir, prefix=prefix)
 
