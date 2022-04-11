@@ -23,8 +23,8 @@ TEST_BASE_ROOT='/yueyuxin/mmdetection/corruption_benchmarks'
 TEST_IMG_AP_C_FILE_NAME = 'output.pkl.ap.pkl'
 TEST_IMG_AP_CLEAN_FILE_NAME = 'output.ap.pkl'
 FAILURE_ANN_NAME = 'failure_annotation.json'
-FL_TRAIN_NAME = FAILURE_ANN_NAME.replace('.json','_fltrain.json')
-FL_TEST_NAME = FAILURE_ANN_NAME.replace('.json','_fltest.json')
+FL_TRAIN_NAME = lambda all_name, t: all_name.replace('.json',f'_fltrain_{t}.json')
+FL_TEST_NAME = lambda all_name, t: all_name.replace('.json',f'_fltest_{t}.json')
 #SAMPLE_CLEAN_TRAINING_PATH = '/yueyuxin/data/coco/sampled_annotations/instances_train2017_sample1000.json'
 #FL_MG_TRAIN_NAME = FAILURE_ANN_NAME.replace('.json','_fltrain_cltrain.json')
 
@@ -102,29 +102,32 @@ def merge_samples(base_annotations, app_ann_list, name, dump=True):
     if dump:
         json.dump(base_annotations, open(name, 'w'))
 
-def setup_failure_set(failure_imgid, wksp, sample_clean=False):
+def setup_all_failure_set(failure_imgid, wksp):
     name = os.path.join(wksp, FAILURE_ANN_NAME)
     get_failure_set(coco_val_annotations, failure_imgid, name)
+
+def setup_failure_train_test(failure_imgid, sample_names={}, sample_clean=False):
+    train_name, test_name = sample_names['train'], sample_names['test']
     train, test = split_train_test(failure_imgid)
 
-    train_name = os.path.join(wksp, FL_TRAIN_NAME)
     train_ann = get_failure_set(coco_val_annotations, train, train_name)
 
-    test_name = os.path.join(wksp, FL_TEST_NAME)
     get_failure_set(coco_val_annotations, test, test_name)
 
     if sample_clean:
+        raise NotImplementedError
         #clean = sample_train(coco_train_annotations)
         clean = get_coco_annotations(SAMPLE_CLEAN_TRAINING_PATH)
         mg_name = os.path.join(wksp, FL_MG_TRAIN_NAME)
         merge_samples(train_ann, [clean], mg_name)
 
 
-def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
+def setup_cfg(model, corruption, severity, new_cfg_file, weight_path, train_ann_path, test_ann_path):
     cfg_path = os.path.join(CFG_ROOT, model["Config"])  
     cfg = Config.fromfile(cfg_path)
     cfg['load_from'] = SET2RUN(weight_path)
-    twksp = SET2RUN(twksp)
+    train_ann_path = SET2RUN(train_ann_path)
+    test_ann_path = SET2RUN(test_ann_path)
 
     aug = dict(type='Corrupt',corruption=corruption, severity=severity)
     train_data = cfg['data']['train']
@@ -135,7 +138,7 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
     else:
         print(train_data['type'])
         raise NotImplementedError
-    train_data['ann_file'] = os.path.join(twksp, FL_TRAIN_NAME)
+    train_data['ann_file'] = train_ann_path
     train_data['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
     corrupted_train_data = copy.deepcopy(train_data)
     corrupted_train_data['pipeline'].insert(1, aug)
@@ -149,9 +152,9 @@ def setup_cfg(model, corruption, severity, new_cfg_file, twksp, weight_path):
 
     assert cfg['data']['val']['type'] == 'CocoDataset'
     assert cfg['data']['test']['type'] == 'CocoDataset'
-    cfg['data']['val']['ann_file'] = os.path.join(twksp, FL_TEST_NAME)
+    cfg['data']['val']['ann_file'] = test_ann_path
     cfg['data']['val']['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
-    cfg['data']['test']['ann_file'] = os.path.join(twksp, FL_TEST_NAME)
+    cfg['data']['test']['ann_file'] = test_ann_path
     cfg['data']['test']['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
     cfg['data']['test']['pipeline'].insert(1, aug)
     cfg['data']['train'] = new_train_data
@@ -175,7 +178,7 @@ def setup(models, prefix):
     runsh_str = '\n'
     for model in models:
         # tmp
-        if model["Name"] == f'{prefix}_r50_fpn_1x_coco' and model["Name"] == f'{prefix}_r101_fpn_1x_coco': continue
+        if model["Name"] != f'{prefix}_r50_fpn_1x_coco' and model["Name"] != f'{prefix}_r101_fpn_1x_coco': continue
         if 'caffe' in model["Name"]: continue
         print('processing',model['Name'])
 
@@ -194,48 +197,58 @@ def setup(models, prefix):
             for severity in [3]:
             #for severity in range(1, 6):
                 k = f'{corruption}-{severity}'
-
-                rd = os.path.join(base_dir, k)
-                
-                # trained exp
-                ckpt_path = os.path.join(rd, 'work_dirs', f'epoch_{MAXEPOCH}.pth')
-                if os.path.exists(ckpt_path): continue
-
-                # finished exp
-                sum_log_path = os.path.join(rd, 'sum.log')
-                if os.path.exists(sum_log_path): continue
-
                 print(k)
-                os.makedirs(rd, exist_ok=True)
-
-                
                 # parse failure
                 td = os.path.join(test_base_dir, k)
-                fail_ann_path = os.path.join(td, FAILURE_ANN_NAME)
-                if not os.path.exists(fail_ann_path):
+                all_fail_ann_path = os.path.join(td, FAILURE_ANN_NAME)
+                if not os.path.exists(all_fail_ann_path):
                     fail_path = os.path.join(td, TEST_IMG_AP_C_FILE_NAME)
                     failure_imgid = parse_failure(fail_path, clean)
-                    setup_failure_set(failure_imgid, td)
+                    setup_all_failure_set(failure_imgid, td)
+                else:
+                    fail_ann = get_coco_annotations(all_fail_ann_path)
+                    failure_imgid = [_['id'] for _ in fail_ann['images']]
 
-                new_cfg_file = os.path.join(rd, model["Config"].split('/')[-1])
+                for t in range(5):
+                    rd = os.path.join(base_dir, k, f'exp{t}')
+                    
+                    # trained exp
+                    ckpt_path = os.path.join(rd, 'work_dirs', f'epoch_{MAXEPOCH}.pth')
+                    if os.path.exists(ckpt_path): continue
 
-                if not os.path.exists(new_cfg_file):
-                    setup_cfg(model, corruption, severity, new_cfg_file, td, weight_path)
+                    # finished exp
+                    sum_log_path = os.path.join(rd, 'sum.log')
+                    #if os.path.exists(sum_log_path): continue
 
-                    for sh in ['train.sh', 'test_all.sh', 'get_mean.py']:
-                        shutil.copy(sh, rd)
+                    os.makedirs(rd, exist_ok=True)
 
-                runsh_str += f'cd {SET2RUN(rd)}\n'
+                    fail_ann_path_train = FL_TRAIN_NAME(all_fail_ann_path, t)
+                    fail_ann_path_test = FL_TEST_NAME(all_fail_ann_path, t)
+                    sampled_ann_paths = {'train': fail_ann_path_train, 'test':fail_ann_path_test}
+                    if not os.path.exists(fail_ann_path_train) or not os.path.exists(fail_ann_path_test):
+                        setup_failure_train_test(failure_imgid, sampled_ann_paths)
+                        print(f'sampling {fail_ann_path_train}')
+                    
 
-                runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)} $1\n'
-                runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH} $1\n'
-                runsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
+                    new_cfg_file = os.path.join(rd, model["Config"].split('/')[-1])
+
+                    if not os.path.exists(new_cfg_file):
+                        setup_cfg(model, corruption, severity, new_cfg_file, weight_path, fail_ann_path_train, fail_ann_path_test)
+
+                        for sh in ['train.sh', 'test_all.sh', 'get_mean.py']:
+                            shutil.copy(sh, rd)
+
+                    runsh_str += f'cd {SET2RUN(rd)}\n'
+
+                    runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)} $1\n'
+                    runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH} $1\n'
+                    runsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
 
         with open(os.path.join(WORKSPACEROOT, prefix, 'run_tmp.sh'), 'w') as fw:
             fw.write(runsh_str)
 
 
-    with open(os.path.join(WORKSPACEROOT, prefix, 'run_all3.sh'), 'w') as fw:
+    with open(os.path.join(WORKSPACEROOT, prefix, 'run.sh'), 'w') as fw:
         fw.write(runsh_str)
 
 
