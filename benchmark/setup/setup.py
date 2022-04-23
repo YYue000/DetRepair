@@ -60,7 +60,7 @@ def setup(models, root, cfg_dir, prefix):
             continue
 
         base_dir = os.path.join(root, prefix, model['Name'])
-        print('processing',model['Name'])
+        print('processing',prefix,model['Name'])
         try:
             w = model["Weights"].split('/')[-1]
         except:
@@ -81,6 +81,8 @@ def setup(models, root, cfg_dir, prefix):
             else:
                 if os.path.exists(os.path.join(d,'output_results.pkl')):
                     continue
+            # tmp
+            shutil.copy(SH, d)
             if not os.path.exists(d):
                 os.makedirs(d)
                 shutil.copy(SH, d)
