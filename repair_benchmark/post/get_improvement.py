@@ -1,6 +1,7 @@
 import os
 import yaml
 import pickle
+import numpy as np
 from collections import OrderedDict
 
 from utils import output_table
@@ -90,7 +91,13 @@ def get_model_repair_results(repair_workspace_dir):
     for root, d, files in os.walk(repair_workspace_dir):
         for f in files:
             if f == 'sum.log':
-                model,_ = root.split('/')[-2:]
+                rsp = root.split('/')
+                if rsp[-1][:3]=='exp':
+                    exp = int(rsp[-1].replace('exp',''))
+                    model,_ = rsp[-3:-1]
+                else:
+                    exp = None
+                    model,_ = rsp[-2:]
                 sp = _.split('-')
                 if len(sp) != 2: continue
                 c = sp[0]
@@ -98,16 +105,29 @@ def get_model_repair_results(repair_workspace_dir):
                 
                 try:
                     ap = parse_sum_log_ap(os.path.join(root, f))
-                except:
-                    print('Failure:',root)
+                except Exception as e:
+                    print('Failure:',root,'of',e)
+                    print(os.path.join(root,f))
                     continue
-                if model not in results:
-                    results[model] = {c:{s:ap}}
-                elif c not in results[model]:
-                    results[model][c] = {s:ap}
+                if exp is None:
+                    if model not in results:
+                        results[model] = {c:{s:ap}}
+                    elif c not in results[model]:
+                        results[model][c] = {s:ap}
+                    else:
+                        assert s not in results[model][c], f'{model} {c} {s}'
+                        results[model][c][s] = ap
                 else:
-                    assert s not in results[model][c], f'{model} {c} {s}'
-                    results[model][c][s] = ap
+                    lap = {k:[v] for k,v in ap.items()}
+                    if model not in results:
+                        results[model] = {c:{s:lap}}
+                    elif c not in results[model]:
+                        results[model][c] = {s:lap}
+                    elif s not in results[model][c]:
+                        results[model][c][s] = lap
+                    else:
+                        for k,v in ap.items():
+                            results[model][c][s][k].append(v)
 
     return results
 
@@ -126,11 +146,18 @@ if __name__ == '__main__':
         for c, rpr_cinfo in rpr_minfo.items():
             for s, rpr_ap in rpr_cinfo.items():
                 bsl_ap = bsl[m][c][s]
-
-                ap = {k:rpr_ap[k]-bsl_ap[k] for k in ['failure','clean','mean']}
-                for k in ['failure','clean','mean']:
-                    k2 = 'rel-'+k
-                    ap[k2] = ap[k]/bsl_ap[k]
+                if isinstance(rpr_ap['failure'], list):
+                    ap = {}
+                    for k in ['failure','clean','mean']:
+                        assert len(rpr_ap[k])>=4, f'{m} {c} {len(rpr_ap[k])}'
+                        ap[k] = [_-bsl_ap[k] for _ in rpr_ap[k]]
+                        k2 = 'rel-'+k
+                        ap[k2] = [_/bsl_ap[k] for _ in ap[k]]
+                else:
+                    ap = {k:rpr_ap[k]-bsl_ap[k] for k in ['failure','clean','mean']}
+                    for k in ['failure','clean','mean']:
+                        k2 = 'rel-'+k
+                        ap[k2] = ap[k]/bsl_ap[k]
 
                 if m not in results:
                     results[m] = {c:{s:ap}}
@@ -147,14 +174,23 @@ if __name__ == '__main__':
         print(_l)
 
 
+    def _ap_str(x):
+        if x is None:
+            return '&'
+        if len(x) != 5:
+            print(x)
+        m = np.mean(x[k2])
+        r = (np.max(x[k2])-np.min(x[k2]))/2
+        return f'&${m:.3f} \pm {r:.3f}$'
+    #_ap_str = lambda x: f'&{x[k2]:.3f}' if x is not None else '&'
     table = ''
     for k in ['failure','clean','mean']:
     #for k in ['mean']:
         k2 = f"rel-{k}"
-        table += output_table(results, 'repair-'+label+f'-{k}', lambda x: f'&{x[k2]:.3f}' if x is not None else '&')
-    
-    #with open(label+'.txt', 'w') as fw:
-    #    fw.write(table)
-    #pickle.dump(results, open(label+'.pkl','wb'))
+        table += output_table(results, 'repair-'+label+f'-{k}', _ap_str)
+    print(table)
+    with open(label+'.txt', 'w') as fw:
+        fw.write(table)
+    pickle.dump(results, open(label+'.pkl','wb'))
 
 
