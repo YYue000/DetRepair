@@ -73,10 +73,11 @@ def get_Errors(path, dump_file=None):
 
 
 if __name__ == '__main__':
-    path = '/home/yueyuxin/repair_workspace/mmdetection/corruption_benchmarks/retinanet/'
+    model='fcos'
+    path = f'/home/yueyuxin/repair_workspace/mmdetection/corruption_benchmarks/{model}/'
     #dump_file = 'retinanet_r50_fpn_1x_coco_errors.pkl'
-    dump_file = 'retinanet_errors.pkl'
+    dump_file = f'{model}_errors.pkl'
     Errors = get_Errors(path, dump_file)
     
     maxerror_keys = cmp_error(Errors)
-    pickle.dump(maxerror_keys, open('retinanet_maxerror_keys.pkl', 'wb'))
+    pickle.dump(maxerror_keys, open(f'{model}_maxerror_keys.pkl', 'wb'))
