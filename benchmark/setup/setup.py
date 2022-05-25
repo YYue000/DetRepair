@@ -81,8 +81,6 @@ def setup(models, root, cfg_dir, prefix):
             else:
                 if os.path.exists(os.path.join(d,'output_results.pkl')):
                     continue
-            # tmp
-            shutil.copy(SH, d)
             if not os.path.exists(d):
                 os.makedirs(d)
                 shutil.copy(SH, d)
