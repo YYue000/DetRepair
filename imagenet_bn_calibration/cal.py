@@ -112,12 +112,17 @@ def validate(dataloader, model, args):
 def calibration(train_dataloader, val_dataloader, val_dataset_raw, model, args):
     model.train()
     max_iter = args.max_iter
+    st_iter = args.start_iter
     best_mean, best_iter = -1, -1
+    if st_iter > 0:
+        _ = torch.load(f'{args.ckpt_save_path}/ckpt_best.pth', map_location='cpu')
+        best_iter = _['iteration']-1
+        best_mean = (_['acc1_cor']+_['acc1_clean'])/2
     if not os.path.exists(args.ckpt_save_path):
         os.makedirs(args.ckpt_save_path)
     iter_train_dataloader = iter(train_dataloader)
     with torch.no_grad():
-        for i in range(max_iter):
+        for i in range(st_iter, max_iter):
             try:
                 data = iter_train_dataloader.next()
             except StopIteration:
@@ -133,9 +138,10 @@ def calibration(train_dataloader, val_dataloader, val_dataset_raw, model, args):
                 acc1_raw, _ = validate(val_dataloader_raw, model, args)
                 acc1, _ = validate(val_dataloader, model, args)
                 m = (acc1+acc1_raw)/2
-                logger.info(f'iter {i}: acc1 {acc1} {acc1_raw} {m}')
+                logger.info(f'iter {i+1}: acc1 {acc1} {acc1_raw} {m}')
                 if m > best_mean:
-                    torch.save(model.state_dict(),f'{args.ckpt_save_path}/ckpt_best.pth')
+                    torch.save({'state_dict':model.state_dict(), 'iteration': i+1, 'acc1_cor': acc1, 'acc1_clean':acc1_raw},
+                            f'{args.ckpt_save_path}/ckpt_best.pth')
                     best_mean = m
                     best_iter = i
                 model.train()
@@ -147,6 +153,7 @@ def calibration(train_dataloader, val_dataloader, val_dataset_raw, model, args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default='resnet50')
     parser.add_argument("--corruption", type=str)
     parser.add_argument("--severity", type=int, default=3)
     parser.add_argument("--prob", type=float, default=1.1)
@@ -159,17 +166,24 @@ if __name__ == '__main__':
     parser.add_argument("--ckpt_save_path", type=str, default="checkpoints")
     parser.add_argument("--load_from", type=str, default=None)
     parser.add_argument("--max_iter", type=int, default=None)
+    parser.add_argument("--start_iter", type=int, default=0)
     parser.add_argument("--aug_data_root", type=str, default=None)
     args = parser.parse_args()
     
     train_dataloader, val_dataloader, val_dataloader_raw = get_dataloader(args)
     logger.info(f'dataloaders {len(train_dataloader)} {len(val_dataloader)}')
     #model = torchvision.models.alexnet(pretrained=True)
+    if args.model == 'resnet50':
+        model_fn = torchvision.models.resnet50
+    elif args.model == 'resnet101':
+        model_fn = torchvision.models.resnet101
+    else:
+        raise NotImplementedError
     if args.load_from is not None:
-        model = torchvision.models.resnet50()
+        model = model_fn()
         model.load_state_dict(torch.load(args.load_from))
     else:
-        model = torchvision.models.resnet50(pretrained=True)
+        model = model_fn(pretrained=True)
     if args.gpu is not None:
         model.cuda().to(device=args.gpu)
     
