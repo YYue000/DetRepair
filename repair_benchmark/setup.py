@@ -10,8 +10,22 @@ import numpy as np
 from imagecorruptions import get_corruption_names
 from mmcv import Config
 
+MAXEXP = 5
+
 #METHOD ='finetune_failure'  
-METHOD ='finetune_clean+failure' # 'finetune_failure'  
+#METHOD ='finetune_clean+failure' # 'finetune_failure'  
+#METHOD ='finetune_calibrated' # 'finetune_failure'  
+#METHOD = 'finetune_mosaic'
+METHOD = 'finetune_pmosaic'
+
+VAL_CLEAN = False
+
+WEIGHTPATH = 'calibrated' if METHOD == 'finetune_calibrated' else 'download'
+BN_CALIBRATION_MODEL_ROOT = '/yueyuxin/mmdetection/repair_benchmarks/bn-calibration/models'
+
+MODELS = ['retinanet_r50_fpn_1x_coco', 'retinanet_r101_fpn_1x_coco', 'faster_rcnn_r50_fpn_1x_coco', 'faster_rcnn_r101_fpn_1x_coco',
+'fcos_r50_caffe_fpn_gn-head_1x_coco', 'fcos_r101_caffe_fpn_gn-head_1x_coco',
+'detr_r50_8x2_150e_coco']
 
 CFG_ROOT = '/home/yueyuxin/mmdetection'
 DATA_ROOT = '/yueyuxin/data/coco'
@@ -33,9 +47,48 @@ def get_coco_annotations(path):
 coco_train_annotations = get_coco_annotations('/yueyuxin/data/coco/annotations/instances_train2017.json')
 coco_val_annotations = get_coco_annotations('/yueyuxin/data/coco/annotations/instances_val2017.json')
 
-MAXEPOCH = 8
+MAXEPOCH = 24
 ################################################
 ################################################
+
+
+def __get_last_line(filename):
+    """
+    get last line of a file
+    :param filename: file name
+    :return: last line or None for empty file
+    """
+    try:
+        filesize = os.path.getsize(filename)
+        if filesize < 100:
+            return None
+        else:
+            with open(filename, 'rb') as fp: # to use seek from end, must use mode 'rb'
+                offset = -8                 # initialize offset
+                while -offset < filesize:   # offset cannot exceed file size
+                    fp.seek(offset, 2)      # read # offset chars from eof(represent by number '2')
+                    lines = fp.readlines()  # read from fp to eof
+                    if len(lines) >= 2:     # if contains at least 2 lines
+                        return lines[-1]    # then last line is totally included
+                    else:
+                        offset *= 2         # enlarge offset
+                fp.seek(0)
+                lines = fp.readlines()
+                return lines[-1]
+    except FileNotFoundError:
+        print(filename + ' not found!')
+        return None
+
+def get_test_num(fp):
+    l = []
+    with open(fp) as fr:
+        for line in fr.readlines():
+            if 'Precision' in line and ' all' in line and ':' in line:
+                line = line.replace('\n','')
+                sp = line.split('=')
+                ap = float(sp[-1])
+                l.append(ap)
+    return len(l)
 
 
 def get_model_files(meta_file):
@@ -140,13 +193,35 @@ def setup_cfg(model, corruption, severity, new_cfg_file, weight_path, train_ann_
         raise NotImplementedError
     train_data['ann_file'] = train_ann_path
     train_data['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
+
+    if METHOD in ['finetune_mixup', 'finetune_mosaic', 'finetune_pmosaic']:
+        train_pipeline_local = train_data['pipeline'][:2]
+        train_pipeline_global = train_data['pipeline'][2:]
+        train_data['pipeline'] = train_pipeline_local
+
+        if METHOD == 'finetune_mixup':
+            mixup = dict(type='MixUp', img_scale=(1024,1024), ratio_range=(0.8,1.6))    
+            train_pipeline_global.insert(1, mixup)
+        elif METHOD == 'finetune_pmosaic':
+            mosaic = dict(type='PMosaic', prob=0.5, img_scale=(1024,1024), pad_val=0)
+            train_pipeline_global.insert(0, mosaic)
+        elif METHOD == 'finetune_mosaic':
+            mosaic = dict(type='Mosaic', img_scale=(1024,1024), pad_val=0)
+            train_pipeline_global.insert(0, mosaic)
+
     corrupted_train_data = copy.deepcopy(train_data)
     corrupted_train_data['pipeline'].insert(1, aug)
 
-    if METHOD == 'finetune_clean+failure':
+    if METHOD in ['finetune_clean+failure','finetune_calibrated']:
         new_train_data = dict(type='ConcatDataset', datasets=[train_data, corrupted_train_data])
     elif METHOD == 'finetune_failure':
         new_train_data = corrupted_train_data
+    elif METHOD in ['finetune_mixup', 'finetune_mosaic', 'finetune_pmosaic']:
+        _train_data = dict(type='ConcatDataset', datasets=[train_data, corrupted_train_data])
+        new_train_data = dict(type='MultiImageMixDataset', dataset=_train_data, pipeline=train_pipeline_global)
+    elif METHOD == 'finetune_augmix':
+        new_train_data = copy.deepcopy(train_data)
+        new_train_data['pipeline'].insert(1, dict(type='FakeAugMix', corruption=corruption, severity=severity, width=2))
     else:
         raise NotImplementedError
 
@@ -154,11 +229,18 @@ def setup_cfg(model, corruption, severity, new_cfg_file, weight_path, train_ann_
     assert cfg['data']['test']['type'] == 'CocoDataset'
     cfg['data']['val']['ann_file'] = test_ann_path
     cfg['data']['val']['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
+    
     cfg['data']['test']['ann_file'] = test_ann_path
     cfg['data']['test']['img_prefix'] = os.path.join(DATA_ROOT, 'val2017/') 
     cfg['data']['test']['pipeline'].insert(1, aug)
+    if not VAL_CLEAN:
+        test_data = cfg['data']['test']
+        clean_test_data = copy.deepcopy(test_data)
+        clean_test_data['pipeline'].pop(1)
+        cfg['data']['test'] = dict(type='ConcatDataset', datasets=[test_data, clean_test_data])
+        cfg['evaluation']['interval'] = MAXEPOCH+1
     cfg['data']['train'] = new_train_data
-    # if batch=4
+    # if batch=8
     cfg['data']['samples_per_gpu'] = 8
     
     cfg['runner']['max_epochs'] = MAXEPOCH
@@ -175,25 +257,32 @@ def setup_cfg(model, corruption, severity, new_cfg_file, weight_path, train_ann_
     cfg.dump(new_cfg_file)
 
 def setup(models, prefix):
-    runsh_str = '\n'
+    trainsh_str = ''
+    testsh_str = ''
     for model in models:
-        # tmp
-        if model["Name"] != f'{prefix}_r50_fpn_1x_coco' and model["Name"] != f'{prefix}_r101_fpn_1x_coco': continue
-        if 'caffe' in model["Name"]: continue
+        if model['Name'] not in MODELS: continue
+        #tmp
+        if model['Name'] != 'retinanet_r101_fpn_1x_coco': continue
         print('processing',model['Name'])
 
         base_dir = os.path.join(WORKSPACEROOT, prefix, model['Name'])
         os.makedirs(base_dir, exist_ok=True)
         #os.system(f'wget -P {base_dir} {model["Weights"]}')
         test_base_dir = os.path.join(TEST_BASE_ROOT, prefix, model['Name'])
-        weight_path = os.path.join(test_base_dir, model["Weights"].split('/')[-1])
+        if WEIGHTPATH == 'download':
+            weight_path = lambda c: os.path.join(test_base_dir, model["Weights"].split('/')[-1])
+        elif WEIGHTPATH == 'calibrated':
+            weight_path = lambda c: os.path.join(BN_CALIBRATION_MODEL_ROOT, model["Weights"].split('/')[-1].replace('.pth', f'-{c}-best.pth'))
 
         clean = get_clean(test_base_dir)
         if clean is None:
             continue
 
-        for corruption in get_corruption_names():
-            if corruption == 'glass_blur': continue
+        corruption_list = list(get_corruption_names())
+        corruption_list.remove('glass_blur')
+        corruption_list.append('glass_blur')
+
+        for corruption in corruption_list:
             for severity in [3]:
             #for severity in range(1, 6):
                 k = f'{corruption}-{severity}'
@@ -209,52 +298,90 @@ def setup(models, prefix):
                     fail_ann = get_coco_annotations(all_fail_ann_path)
                     failure_imgid = [_['id'] for _ in fail_ann['images']]
 
-                for t in range(5):
+                for t in range(MAXEXP):
                     rd = os.path.join(base_dir, k, f'exp{t}')
                     
                     # trained exp
+                    train_ok = False
                     ckpt_path = os.path.join(rd, 'work_dirs', f'epoch_{MAXEPOCH}.pth')
-                    if os.path.exists(ckpt_path): continue
+                    if os.path.exists(ckpt_path): 
+                        print(f'skip {rd} in train')
+                        train_ok = True
 
                     # finished exp
                     sum_log_path = os.path.join(rd, 'sum.log')
-                    #if os.path.exists(sum_log_path): continue
+                    if os.path.exists(sum_log_path):
+                        line = __get_last_line(sum_log_path)
+                        if line is not None:
+                            line = str(line)
+                            if line.startswith('epoch '):
+                                try:
+                                    _e_maxep = int(line.replace('\n','').split('in')[1]) 
+                                    if _e_maxep == MAXEPOCH:
+                                        print(f'skip {rd} in test')
+                                        continue
+                                    else:
+                                        print('epoch error')
+                                except Exception as e:
+                                    print(e, 'at epoch',corruption,t)
+                        os.remove(sum_log_path)
+                    elif train_ok:
+                        test_num = get_test_num(os.path.join(rd, 'test.log'))
+                        if VAL_CLEAN and test_num == MAXEPOCH or (not VAL_CLEAN) and test_num==MAXEPOCH*2:
+                            print('test ok but no sum log', rd)
+                            continue
+                        elif test_num>0:
+                            print(f'testing, {test_num} tests got')
+                            continue
 
-                    os.makedirs(rd, exist_ok=True)
 
-                    fail_ann_path_train = FL_TRAIN_NAME(all_fail_ann_path, t)
-                    fail_ann_path_test = FL_TEST_NAME(all_fail_ann_path, t)
-                    sampled_ann_paths = {'train': fail_ann_path_train, 'test':fail_ann_path_test}
-                    if not os.path.exists(fail_ann_path_train) or not os.path.exists(fail_ann_path_test):
-                        setup_failure_train_test(failure_imgid, sampled_ann_paths)
-                        print(f'sampling {fail_ann_path_train}')
-                    
 
                     new_cfg_file = os.path.join(rd, model["Config"].split('/')[-1])
 
-                    if not os.path.exists(new_cfg_file):
-                        setup_cfg(model, corruption, severity, new_cfg_file, weight_path, fail_ann_path_train, fail_ann_path_test)
+                    if not train_ok:
+                        os.makedirs(rd, exist_ok=True)
 
-                        for sh in ['train.sh', 'test_all.sh', 'get_mean.py']:
-                            shutil.copy(sh, rd)
-
-                    runsh_str += f'cd {SET2RUN(rd)}\n'
-
-                    runsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)} $1\n'
-                    runsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH} $1\n'
-                    runsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
-
-        with open(os.path.join(WORKSPACEROOT, prefix, 'run_tmp.sh'), 'w') as fw:
-            fw.write(runsh_str)
+                        fail_ann_path_train = FL_TRAIN_NAME(all_fail_ann_path, t)
+                        fail_ann_path_test = FL_TEST_NAME(all_fail_ann_path, t)
+                        sampled_ann_paths = {'train': fail_ann_path_train, 'test':fail_ann_path_test}
+                        if not os.path.exists(fail_ann_path_train) or not os.path.exists(fail_ann_path_test):
+                            setup_failure_train_test(failure_imgid, sampled_ann_paths)
+                            print(f'sampling {fail_ann_path_train}')
+                        
 
 
-    with open(os.path.join(WORKSPACEROOT, prefix, 'run.sh'), 'w') as fw:
-        fw.write(runsh_str)
+                        if not os.path.exists(new_cfg_file):
+                            setup_cfg(model, corruption, severity, new_cfg_file, weight_path(corruption), fail_ann_path_train, fail_ann_path_test)
+                            for sh in ['train.sh', 'test_all.sh', 'get_mean.py']:
+                                shutil.copy(sh, rd)
+
+                        trainsh_str += f'cd {SET2RUN(rd)}\n'
+                        trainsh_str+=f'bash train.sh {SET2RUN(new_cfg_file)} $1\n'
+                    
+                    testsh_str += f'cd {SET2RUN(rd)}\n'
+
+                    testsh_str+=f'sh test_all.sh {SET2RUN(new_cfg_file)} {MAXEPOCH} $1\n'
+                    if VAL_CLEAN:
+                        testsh_str += 'python get_mean.py 2>&1|tee sum.log\n'
+                    else:
+                        testsh_str += f'python get_mean.py --test_in 2 --MAXEPOCH {MAXEPOCH} 2>&1|tee sum.log\n'
+
+
+        #with open(os.path.join(WORKSPACEROOT, prefix, 'run_tmp.sh'), 'w') as fw:
+            #fw.write(runsh_str)
+
+
+    with open(os.path.join(WORKSPACEROOT, prefix, 'run_test_r101_2.sh'), 'w') as fw:
+        fw.write(testsh_str)
+
+    with open(os.path.join(WORKSPACEROOT, prefix, 'run_train_r101_2.sh'), 'w') as fw:
+        fw.write(trainsh_str)
+
 
 
 if __name__ == '__main__':
-    #for prefix in ['faster_rcnn']:
-    for prefix in ['retinanet', 'faster_rcnn']:
+    #for prefix in ['retinanet','faster_rcnn', 'detr', 'fcos']:
+    for prefix in ['retinanet']:
         models = get_model_files(os.path.join(CFG_ROOT, f'configs/{prefix}/metafile.yml'))
         setup(models, prefix=prefix)
 

@@ -4,12 +4,13 @@ ROOT=../../../../../..
 CONFIG=$1
 MAXEPOCH=$2
 gpuid=$3
+MINEPOCH=${4-1}
 echo $CONFIG
 
 export PYTHONPATH=$ROOT:$PYTHONPATH 
 EVAL_METRICS=bbox
 
-for e in $(seq 1 $MAXEPOCH)
+for e in $(seq $MINEPOCH $MAXEPOCH)
 do
     CHECKPOINT=work_dirs/epoch_${e}.pth
     python $ROOT/tools/test.py \

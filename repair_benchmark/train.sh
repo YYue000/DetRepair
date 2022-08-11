@@ -2,16 +2,14 @@
 ROOT=../../../../../..
 
 CONFIG=$1
-GPUS=4
-PORT=${PORT:-29500}
+gpuid=$2
 
 
 export PYTHONPATH=$ROOT:$PYTHONPATH 
 
-python -m torch.distributed.launch --nproc_per_node=$GPUS --master_port=$PORT \
-    $ROOT/tools/train.py $CONFIG --work-dir work_dir --launcher pytorch ${@:3} \
-    2>&1|tee train.log
-#gpuid=$3
-#python $ROOT/tools/train.py \
-#    ${CONFIG} --work-dir work-dir --gpu-id $gpuid \
+#python -m torch.distributed.launch --nproc_per_node=$GPUS --master_port=$PORT \
+#    $ROOT/tools/train.py $CONFIG --work-dir work_dirs --launcher pytorch ${@:3} \
 #    2>&1|tee train.log
+python $ROOT/tools/train.py \
+    ${CONFIG} --work-dir work_dirs --gpu-id $gpuid \
+    2>&1|tee -a train.log
