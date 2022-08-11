@@ -6,10 +6,20 @@ from collections import OrderedDict
 
 from utils import output_table
 
+MODELS = ['retinanet_r50_fpn_1x_coco', 'retinanet_r101_fpn_1x_coco', 'faster_rcnn_r50_fpn_1x_coco', 'faster_rcnn_r101_fpn_1x_coco',
+'fcos_r50_caffe_fpn_gn-head_1x_coco', 'fcos_r101_caffe_fpn_gn-head_1x_coco',
+'detr_r50_8x2_150e_coco']
+
 def _get_fl_test_log(root):
     p = os.path.join(root, 'test2.log')
     if os.path.exists(p): return p
     p = os.path.join(root, 'test.log')
+    if os.path.exists(p): return p
+    print('no valid file', root)
+    return None
+
+def _get_fl_test_log_clean(root):
+    p = os.path.join(root, 'test_clean.log')
     if os.path.exists(p): return p
     print('no valid file', root)
     return None
@@ -19,14 +29,25 @@ def get_model_files(prefix):
     res = yaml.safe_load(open(meta_file))
     return res['Models']
 
-def parse_test_log_ap(path):
+def parse_test_log_ap(path, k='failure'):
     with open(path) as fr:
         raw_ap = eval([_ for _ in fr.readlines()][-1])
         ap = {k.replace('bbox_m','').replace('_',''):v for k,v in raw_ap.items() if 'copypaste' not in k}
         #ap = {_:ap[_] for _ in AP_KEYS}
-        ap = {'failure': ap['AP'], 'clean': None}
+        ap = {k: ap['AP']}
         
     return ap
+
+def parse_test_results(root):
+    p = _get_fl_test_log(root)
+    pc = _get_fl_test_log_clean(root)
+ 
+    ap = parse_test_log_ap(p)
+    apc = parse_test_log_ap(pc, 'clean')
+    ap.update(apc)
+    ap['mean'] = (ap['failure']+ap['clean'])/2
+    return ap
+
 
 def parse_sum_log_ap(path):
     with open(path) as fr:
@@ -36,52 +57,49 @@ def parse_sum_log_ap(path):
     return {'mean': mean_ap, 'failure': fl_ap, 'clean': cl_ap}
 
 def get_model_raw_failure_test_results(model_workspace_dir, verbose=True):
-    meta_files = {pk: get_model_files(pk) for pk in ['retinanet', 'faster_rcnn']}
-    clean_results = {}
-    for pk in ['retinanet', 'faster_rcnn']:
-        y = meta_files[pk]
-        for m in ['r50_fpn_1x_coco', 'r101_fpn_1x_coco']:
-            p = pk+'_'+m
-            for it in y:
-                if it['Name'] == p:
-                    assert len(it['Results']) == 1
-                    clean_results[p] = it['Results'][0]['Metrics']['box AP']/100.0
-
-
     results = {}
 
     assert os.path.exists(model_workspace_dir)
     for root, d, files in os.walk(model_workspace_dir):
         for f in files:
-            if f == 'output_results.pkl': # whole val dataset
-                p = _get_fl_test_log(root)
-                m,_ = root.split('/')[-2:]
+            if f == 'output_failure_testset.bbox.json':
+            #if f == 'output_results.pkl': # whole val dataset
+                rsp = root.split('/')
+                if rsp[-1][:3]=='exp':
+                    exp = int(rsp[-1].replace('exp',''))
+                    model,_ = rsp[-3:-1]
+                else:
+                    exp = None
+                    model,_ = rsp[-2:]
+                if model not in MODELS: continue
+
                 sp = _.split('-')
+                if len(sp) != 2: continue
                 c = sp[0]
                 s = int(sp[1])
- 
-                # tmp
-                if not m.endswith('r50_fpn_1x_coco') and not m.endswith('r101_fpn_1x_coco'): continue
+
                 if s != 3: continue
+
                 if verbose:
                     print(root.split('/')[-2:])
 
                 try:
-                    ap = parse_test_log_ap(p)
+                    ap = parse_test_results(root)
                 except Exception as e:
                     print(e)
                     print('-'*20)
                     continue
+                
+                if model not in results:
+                    results[model] = {}
+                if c not in results[model]:
+                    results[model][c] = {}
+                
+                assert s not in results[model][c], f'{model} {c} {s}'
+                results[model][c][s] = {}
+                assert exp not in results[model][c][s], f'{model} {c} {s} {exp}'
+                results[model][c][s][exp] = ap
 
-                ap['clean'] = clean_results[m]
-                ap['mean'] = (ap['clean']+ap['failure'])/2.0
-                if m not in results:
-                    results[m] = {c:{s:ap}}
-                elif c not in results[m]:
-                    results[m][c] = {s:ap}
-                else:
-                    assert s not in results[m][c], f'{m} {c} {s}'
-                    results[m][c][s] = ap
 
     return results 
 
@@ -109,25 +127,16 @@ def get_model_repair_results(repair_workspace_dir):
                     print('Failure:',root,'of',e)
                     print(os.path.join(root,f))
                     continue
-                if exp is None:
-                    if model not in results:
-                        results[model] = {c:{s:ap}}
-                    elif c not in results[model]:
-                        results[model][c] = {s:ap}
-                    else:
-                        assert s not in results[model][c], f'{model} {c} {s}'
-                        results[model][c][s] = ap
-                else:
-                    lap = {k:[v] for k,v in ap.items()}
-                    if model not in results:
-                        results[model] = {c:{s:lap}}
-                    elif c not in results[model]:
-                        results[model][c] = {s:lap}
-                    elif s not in results[model][c]:
-                        results[model][c][s] = lap
-                    else:
-                        for k,v in ap.items():
-                            results[model][c][s][k].append(v)
+                
+                if model not in results:
+                    results[model] = {}
+                if c not in results[model]:
+                    results[model][c] = {}
+                
+                assert s not in results[model][c], f'{model} {c} {s}'
+                results[model][c][s] = {}
+                assert exp not in results[model][c][s], f'{model} {c} {s} {exp}'
+                results[model][c][s][exp] = ap
 
     return results
 
@@ -146,18 +155,13 @@ if __name__ == '__main__':
         for c, rpr_cinfo in rpr_minfo.items():
             for s, rpr_ap in rpr_cinfo.items():
                 bsl_ap = bsl[m][c][s]
-                if isinstance(rpr_ap['failure'], list):
-                    ap = {}
-                    for k in ['failure','clean','mean']:
-                        assert len(rpr_ap[k])>=4, f'{m} {c} {len(rpr_ap[k])}'
-                        ap[k] = [_-bsl_ap[k] for _ in rpr_ap[k]]
-                        k2 = 'rel-'+k
-                        ap[k2] = [_/bsl_ap[k] for _ in ap[k]]
-                else:
-                    ap = {k:rpr_ap[k]-bsl_ap[k] for k in ['failure','clean','mean']}
-                    for k in ['failure','clean','mean']:
-                        k2 = 'rel-'+k
-                        ap[k2] = ap[k]/bsl_ap[k]
+                ap = {}
+                for k in ['failure','clean','mean']:
+                    assert len(rpr_ap)>=4, f'{m} {c} {len(rpr_ap[k])}'
+                    l = list(rpr_ap.keys()) 
+                    ap[k] = [rpr_ap[exp][k]-bsl_ap[exp][k] for exp in l]
+                    k2 = 'rel-'+k
+                    ap[k2] = [(rpr_ap[exp][k]-bsl_ap[exp][k])/bsl_ap[k] for exp in l]
 
                 if m not in results:
                     results[m] = {c:{s:ap}}
