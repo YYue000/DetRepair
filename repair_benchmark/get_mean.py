@@ -31,8 +31,8 @@ def get_concat_ap(fp, MAXEPOCH):
                 ap1 = ap['1_bbox_mAP']
                 if cl[e-1]!=0:
                     print('repeat at epoch',e)
-                cl[e-1] = ap0
-                fl[e-1] = ap1
+                cl[e-1] = ap1
+                fl[e-1] = ap0
                 print(line,e,ap0, ap1)
         lost = [str(_+1) for _ in np.where(cl==0)[0]]
         assert len(lost) == 0, ' '.join(lost)
@@ -67,4 +67,4 @@ if __name__ == '__main__':
     l = [(_+__)/2 for _,__ in zip(clean, fog5)]
     print(l)
     _ = np.argmax(l)
-    print("epoch",_+1,"mean",max(l), "failure",fog5[_], "clean",clean[_])
+    print("epoch",_+1,"mean",max(l), "failure",fog5[_], "clean",clean[_],'in',args.MAXEPOCH)
